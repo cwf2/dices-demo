@@ -326,6 +326,6 @@ with st.status("Preparing data...", expanded=True) as status:
         with open(pickled_aggregated, 'wb') as f:
             pickle.dump(aggregated, f)
 
-    del(status)
+    status.update(expanded=False)
 
 st.write(stackPlot(rolling, '3662'))
