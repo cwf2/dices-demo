@@ -15,6 +15,7 @@ LOCAL_PATH = 'data'
 # download data
 #
 
+@st.cache_data
 def downloadData(local_path=LOCAL_PATH):
     '''Make sure data files are present locally'''
     local_path = 'data'
@@ -37,6 +38,7 @@ def downloadData(local_path=LOCAL_PATH):
 # process data
 #
 
+@st.cache_data
 def processMothers(local_path=LOCAL_PATH):
     # tokens
     tokens_file = os.path.join(local_path, 'merged.csv')
@@ -67,6 +69,7 @@ def processMothers(local_path=LOCAL_PATH):
     return tokens
 
 
+@st.cache_data
 def addFeatures(tokens, local_path=LOCAL_PATH):
     # features
     class_file = os.path.join(local_path, 'mother_diction.csv')
@@ -121,7 +124,6 @@ def rankFeatures(col, top=None):
 # rolling window samples
 
 def rollingSamples(tokens):
-
     results = []
     for label, group in tokens.groupby('speech_id'):
         df = group.groupby('line_id', sort=False).agg(
@@ -170,7 +172,7 @@ def rollingSamples(tokens):
 
 # aggregate at speech level
 def aggSamples(samples):
-    x = samples.groupby('speech_id', sort=False).agg(
+    df = samples.groupby('speech_id', sort=False).agg(
         author = ('author', 'first'),
         work = ('work', 'first'),
         l_fi = ('l_fi', 'first'),
@@ -184,11 +186,31 @@ def aggSamples(samples):
         comp_sum = ('comp', 'sum'),
         comp_max = ('comp', 'max'),
     )
-    x['loc'] = x['l_fi'] + '-' + x['l_la']
-    x['comp_norm'] = x['comp_sum'] / x['tokens']
-    x = x.sort_values('comp_max', ascending=False)
+    # derived columns
+    df['loc'] = df['l_fi'] + '-' + df['l_la']
+    df['comp_norm'] = df['comp_sum'] / df['tokens']
+    df = df.sort_values('comp_max', ascending=False)
 
-    return x
+    return df
+
+
+def filterSpeeches(df, author="", work="", spkr="", addr=""):
+    params = []
+    if (author != "") and (author in df["author"].tolist()):
+        params.append(f'author=="{author}"')
+    if (work != "") and (work in df["work"].tolist()):
+        params.append(f'work=="{work}"')
+    if (spkr != "") and (spkr in df["spkr"].tolist()):
+        params.append(f'spkr=="{spkr}"')
+    if (addr != "") and (addr in df["addr"].tolist()):
+        params.append(f'addr=="{addr}"')
+
+    q = "&".join(params)
+    
+    if q:
+        return df.query(q)
+    else:
+        return df
 
 #
 # figures
@@ -269,7 +291,7 @@ def highlight(tokens, speech_id):
         .groupby("line_id", sort=False)
         .agg(
             loc = ("line_id", lambda s: '<td>' + s.iloc[0].rsplit(':', 1)[1] + '</td>'),
-            tokens = ("token", lambda s: '<td>' + ' '.join(s) + '<td>'),)
+            tokens = ("token", lambda s: '<td>' + ' '.join(s) + '</td>'),)
         .apply(lambda row: f'<tr>{row["loc"]}{row["tokens"]}</tr>', axis=1)
     ) + '</table>'
     
@@ -279,53 +301,133 @@ def highlight(tokens, speech_id):
 #
 # User Experience
 #
+
+# set default values
+if "ready" not in st.session_state:
+    st.session_state["ready"] = False
+if "sel_author" not in st.session_state:
+    st.session_state["sel_author"] = ""
+if "sel_work" not in st.session_state:
+    st.session_state["sel_work"] = ""
+if "sel_spkr" not in st.session_state:
+    st.session_state["sel_spkr"] = ""
+if "sel_addr" not in st.session_state:
+    st.session_state["sel_addr"] = ""
+
+if not st.session_state["ready"]:
+    with st.status("Preparing data..."):
+        # download data
+        st.write("Downloading")
+        downloadData()
+
+        # token table
+        pickled_tokens = os.path.join(LOCAL_PATH, 'tokens.pickle')
+        if os.path.exists(pickled_tokens):
+            # load cached data
+            st.write("Loading cached token data")
+            with open(pickled_tokens, 'rb') as f:
+                st.session_state["tokens"] = pickle.load(f)
+        else:
+            # check mother attribution
+            st.write("Checking mother attribution")
+            st.session_state["tokens"] = processMothers()
+
+            # tally features
+            st.write("Tagging hand-selected features")
+            st.session_state["tokens"] = addFeatures(st.session_state["tokens"])
+
+            # cache token table locally
+            st.write("Caching tokens")
+            with open(pickled_tokens, 'wb') as f:
+                pickle.dump(st.session_state["tokens"], f)
+
+        # rolling samples
+        pickled_rolling = os.path.join(LOCAL_PATH, 'rolling.pickle')
+        if os.path.exists(pickled_rolling):
+            # load cached data
+            st.write("Loading cached rolling samples")
+            with open(pickled_rolling, 'rb') as f:
+                st.session_state["rolling"] = pickle.load(f)
+        else:
+            # calculate rolling samples
+            st.write("Calculating rolling samples")
+            st.session_state["rolling"] = rollingSamples(st.session_state["tokens"])
+
+            # cache samples locally
+            st.write("Caching samples")
+            with open(pickled_rolling, 'wb') as f:
+                pickle.dump(st.session_state["rolling"], f)
+
+        # speech-level aggregated values
+        pickled_aggregated = os.path.join(LOCAL_PATH, 'aggregated.pickle')
+        if os.path.exists(pickled_aggregated):
+            # load cached data
+            st.write("Loading cached aggregated samples")
+            with open(pickled_aggregated, 'rb') as f:
+                st.session_state["aggregated"] = pickle.load(f)
+        else:
+            # aggregate rolling samples by speech
+            st.write("Aggregating by speech")
+            st.session_state["aggregated"] = aggSamples(st.session_state["rolling"])
+
+            # cache aggregated values locally
+            st.write("Caching aggregated values")
+            with open(pickled_aggregated, 'wb') as f:
+                pickle.dump(st.session_state["aggregated"], f)
+             
+    st.session_state["ready"] = True
+    st.rerun()
+else:
     
-with st.status("Preparing data...", expanded=True) as status:
-    st.write("Downloading remote data")
-    downloadData()
-
-    pickled_tokens = os.path.join(LOCAL_PATH, 'tokens.pickle')
-    if os.path.exists(pickled_tokens):
-        st.write("Loading cached token data")
-        with open(pickled_tokens, 'rb') as f:
-            tokens = pickle.load(f)
-    else:
-        st.write("Checking mother attribution")
-        tokens = processMothers()
+    # filter speeches based on current selections
+    filtered = filterSpeeches(st.session_state["aggregated"],
+        author = st.session_state["sel_author"],
+        work = st.session_state["sel_work"],
+        spkr = st.session_state["sel_spkr"],
+        addr = st.session_state["sel_addr"],
+    )
     
-        st.write("Tagging hand-selected features")
-        tokens = addFeatures(tokens)
-        
-        st.write("Caching")
-        with open(pickled_tokens, 'wb') as f:
-            pickle.dump(tokens, f)
-
-    pickled_rolling = os.path.join(LOCAL_PATH, 'rolling.pickle')
-    if os.path.exists(pickled_rolling):
-        st.write("Loading cached rolling samples")
-        with open(pickled_rolling, 'rb') as f:
-            rolling = pickle.load(f)
-    else:
-        st.write("Calculating rolling samples")
-        rolling = rollingSamples(tokens)
-        
-        st.write("Caching")
-        with open(pickled_rolling, 'wb') as f:
-            pickle.dump(rolling, f)
+    # get filtered option lists
+    authors = [""] + filtered["author"].dropna().sort_values().unique().tolist()
+    works = [""] + filtered["work"].dropna().sort_values().unique().tolist()
+    spkrs = [""] + filtered["spkr"].dropna().sort_values().unique().tolist()
+    addrs = [""] + filtered["addr"].dropna().sort_values().unique().tolist()
     
-    pickled_aggregated = os.path.join(LOCAL_PATH, 'aggregated.pickle')
-    if os.path.exists(pickled_aggregated):
-        st.write("Loading cached aggregated samples")
-        with open(pickled_aggregated, 'rb') as f:
-            aggregated = pickle.load(f)
-    else:
-        st.write("Aggregating by speech")
-        aggregated = aggSamples(rolling)
-        
-        st.write("Caching")
-        with open(pickled_aggregated, 'wb') as f:
-            pickle.dump(aggregated, f)
+    # check for illegal values
+    if st.session_state["sel_author"] not in authors:
+        st.session_state["sel_author"] = ""
+    if st.session_state["sel_work"] not in works:
+        st.session_state["sel_work"] = ""
+    if st.session_state["sel_spkr"] not in spkrs:
+        st.session_state["sel_spkr"] = ""
+    if st.session_state["sel_addr"] not in addrs:
+        st.session_state["sel_addr"] = ""
+    
+    # set indices for current selections
+    author_idx = authors.index(st.session_state["sel_author"])
+    work_idx = works.index(st.session_state["sel_work"])
+    spkr_idx = spkrs.index(st.session_state["sel_spkr"])
+    addr_idx = addrs.index(st.session_state["sel_addr"])
+    
+    # filter controls
+    with st.sidebar:
+        st.selectbox("Author", authors, index=author_idx, key="sel_author")
+        st.selectbox("Work", works, index=work_idx, key="sel_work")
+        st.selectbox("Speaker", spkrs, index=spkr_idx, key="sel_spkr")
+        st.selectbox("Addressee", addrs, index=addr_idx, key="sel_addr")
+    
+    # main panel
+    st.write("This is some text.")
 
-    status.update(expanded=False)
-
-st.write(stackPlot(rolling, '3662'))
+    selected = st.dataframe(filtered,
+        hide_index = True,
+        on_select = "rerun",
+        selection_mode = "single-row",
+        column_order = ["author", "work", "loc", "spkr", "addr", "mother","tokens", "comp_max"]
+    )["selection"]["rows"]
+    
+    if len(selected) > 0:
+        idx = selected[-1]
+        speech_id = filtered.index.values[idx]
+        st.write(stackPlot(st.session_state["rolling"], str(speech_id)))
+        st.markdown(highlight(st.session_state["tokens"], str(speech_id)), unsafe_allow_html=True)
