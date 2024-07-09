@@ -417,7 +417,7 @@ else:
         st.selectbox("Addressee", addrs, index=addr_idx, key="sel_addr")
     
     # main panel
-    st.write("This is some text.")
+    st.write("Select a row from the table to see the text and sample plot.")
 
     selected = st.dataframe(filtered,
         hide_index = True,
