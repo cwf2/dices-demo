@@ -52,11 +52,11 @@ def processMothers(local_path=LOCAL_PATH):
         '''check whether any speaker-addressee combo is in the mother-child list'''
         valid_keys = list(mothers.spkr + ':' + mothers.addr)
 
-        if rec['spkr'] is np.nan:
+        if rec['spkr'] is np.NaN:
             return False
-        if rec['addr'] is np.nan:
+        if rec['addr'] is np.NaN:
             return False
-    
+
         for spkr in str(rec['spkr']).split(','):
             for addr in str(rec['addr']).split(','):
                 key = f'{spkr}:{addr}'
@@ -65,7 +65,13 @@ def processMothers(local_path=LOCAL_PATH):
 
         return False
     
-    tokens['mother'] = tokens.apply(motherValidation, axis=1)
+    # validate mother-child pairs by speech instead of by token
+    by_speech = tokens.groupby(['spkr', 'addr'], sort=False).first().reset_index()
+    by_speech['mother'] = by_speech.apply(motherValidation, axis=1)
+
+    # apply results to the whole table
+    tokens = tokens.merge(by_speech[['spkr', 'addr', 'mother']], on=['spkr', 'addr'], how='left')
+    
     return tokens
 
 
