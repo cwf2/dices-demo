@@ -52,9 +52,9 @@ def processMothers(local_path=LOCAL_PATH):
         '''check whether any speaker-addressee combo is in the mother-child list'''
         valid_keys = list(mothers.spkr + ':' + mothers.addr)
 
-        if rec['spkr'] is np.NaN:
+        if rec['spkr'] is np.nan:
             return False
-        if rec['addr'] is np.NaN:
+        if rec['addr'] is np.nan:
             return False
 
         for spkr in str(rec['spkr']).split(','):
