@@ -19,7 +19,7 @@ LOCAL_PATH = 'data'
 def downloadData(local_path=LOCAL_PATH):
     '''Make sure data files are present locally'''
     local_path = 'data'
-    remote_path = 'https://github.com/cwf2/dices-mta/raw/main/data/'
+    remote_path = 'https://github.com/cwf2/dices-book-mummy/raw/main/data/'
     data_files = ['merged.csv', 'mother-child.csv', 'mother_diction.csv']
 
     if not os.path.exists(local_path):
